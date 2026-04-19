@@ -2,7 +2,7 @@
 <html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>工业机械臂3D交互可视化</title>
     <style>
         * {
@@ -14,6 +14,7 @@
             font-family: 'Microsoft YaHei', Arial, sans-serif;
             overflow: hidden;
             background: #1a1a2e;
+            touch-action: none;
         }
         #canvas-container {
             width: 100vw;
@@ -28,11 +29,37 @@
             border-radius: 12px;
             color: #fff;
             min-width: 280px;
+            max-width: 320px;
             box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
             border: 1px solid rgba(100, 100, 150, 0.3);
             backdrop-filter: blur(10px);
             max-height: 90vh;
             overflow-y: auto;
+            z-index: 100;
+            transition: transform 0.3s ease;
+        }
+        #control-panel.collapsed {
+            transform: translateX(calc(100% + 10px));
+        }
+        #toggle-panel {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            width: 40px;
+            height: 40px;
+            background: rgba(20, 20, 40, 0.95);
+            border: 1px solid rgba(100, 100, 150, 0.3);
+            border-radius: 8px;
+            color: #4fc3f7;
+            font-size: 20px;
+            cursor: pointer;
+            z-index: 99;
+            display: none;
+        }
+        #control-panel.collapsed + #toggle-panel {
+            display: flex;
+            align-items: center;
+            justify-content: center;
         }
         #control-panel h2 {
             font-size: 18px;
@@ -48,6 +75,16 @@
             font-size: 14px;
             color: #81d4fa;
             margin-bottom: 10px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .control-section h3::before {
+            content: '';
+            width: 4px;
+            height: 14px;
+            background: #4fc3f7;
+            border-radius: 2px;
         }
         .slider-group {
             margin-bottom: 12px;
@@ -77,6 +114,14 @@
             cursor: pointer;
             box-shadow: 0 2px 6px rgba(0, 0, 0, 0.3);
         }
+        .slider-group input[type="range"]::-moz-range-thumb {
+            width: 16px;
+            height: 16px;
+            background: #4fc3f7;
+            border-radius: 50%;
+            cursor: pointer;
+            border: none;
+        }
         .btn-group {
             display: flex;
             gap: 8px;
@@ -85,24 +130,44 @@
         .btn {
             flex: 1;
             min-width: 70px;
-            padding: 8px 12px;
+            padding: 10px 12px;
             border: none;
             border-radius: 6px;
             cursor: pointer;
             font-size: 12px;
-            transition: all 0.2s ease;
+            transition: all 0.15s ease;
             background: linear-gradient(135deg, #1e3a5f, #2d4a6f);
             color: #fff;
             border: 1px solid rgba(79, 195, 247, 0.3);
+            font-family: inherit;
         }
         .btn:hover {
             background: linear-gradient(135deg, #2d4a6f, #3d5a7f);
             transform: translateY(-1px);
             box-shadow: 0 4px 12px rgba(79, 195, 247, 0.3);
         }
+        .btn:active {
+            transform: translateY(0);
+        }
         .btn.active {
             background: linear-gradient(135deg, #4fc3f7, #29b6f6);
             color: #000;
+        }
+        .btn.action-btn {
+            background: linear-gradient(135deg, #2e7d32, #43a047);
+            border-color: rgba(76, 175, 80, 0.5);
+        }
+        .btn.action-btn:hover {
+            background: linear-gradient(135deg, #388e3c, #4caf50);
+            box-shadow: 0 4px 12px rgba(76, 175, 80, 0.4);
+        }
+        .btn.action-btn.running {
+            background: linear-gradient(135deg, #f57c00, #ff9800);
+            animation: pulse 1s infinite;
+        }
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.7; }
         }
         #info-panel {
             position: fixed;
@@ -114,6 +179,8 @@
             color: #b0bec5;
             font-size: 12px;
             border: 1px solid rgba(100, 100, 150, 0.3);
+            z-index: 100;
+            max-width: 280px;
         }
         #info-panel p {
             margin: 5px 0;
@@ -151,6 +218,7 @@
         #loading h1 {
             color: #4fc3f7;
             margin-bottom: 20px;
+            font-size: 24px;
         }
         .loader {
             width: 60px;
@@ -163,6 +231,11 @@
         @keyframes spin {
             to { transform: rotate(360deg); }
         }
+        #loading-progress {
+            margin-top: 20px;
+            color: #b0bec5;
+            font-size: 14px;
+        }
         #performance-stats {
             position: fixed;
             top: 20px;
@@ -174,6 +247,128 @@
             font-size: 11px;
             font-family: monospace;
             border: 1px solid rgba(100, 100, 150, 0.3);
+            z-index: 100;
+        }
+        #performance-stats .stat-row {
+            display: flex;
+            justify-content: space-between;
+            gap: 15px;
+        }
+        #performance-stats .warning {
+            color: #ff9800;
+        }
+        #performance-stats .good {
+            color: #4caf50;
+        }
+        #highlight-info {
+            position: fixed;
+            top: 80px;
+            left: 20px;
+            background: rgba(20, 20, 40, 0.95);
+            padding: 15px 20px;
+            border-radius: 10px;
+            color: #fff;
+            font-size: 13px;
+            border: 2px solid #4fc3f7;
+            z-index: 100;
+            display: none;
+            max-width: 300px;
+            box-shadow: 0 4px 20px rgba(79, 195, 247, 0.3);
+        }
+        #highlight-info h4 {
+            color: #4fc3f7;
+            margin-bottom: 8px;
+            font-size: 15px;
+        }
+        #highlight-info p {
+            color: #b0bec5;
+            margin: 4px 0;
+            line-height: 1.5;
+        }
+        #highlight-info .spec {
+            display: flex;
+            justify-content: space-between;
+            padding: 4px 0;
+            border-bottom: 1px solid rgba(100, 100, 150, 0.2);
+        }
+        #highlight-info .spec-label {
+            color: #81d4fa;
+        }
+        #highlight-info .spec-value {
+            color: #fff;
+        }
+        .action-status {
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: rgba(20, 20, 40, 0.95);
+            padding: 20px 40px;
+            border-radius: 12px;
+            color: #4fc3f7;
+            font-size: 18px;
+            border: 2px solid #4fc3f7;
+            z-index: 200;
+            display: none;
+            text-align: center;
+        }
+        .action-status .progress-bar {
+            width: 200px;
+            height: 6px;
+            background: rgba(79, 195, 247, 0.2);
+            border-radius: 3px;
+            margin-top: 15px;
+            overflow: hidden;
+        }
+        .action-status .progress-fill {
+            height: 100%;
+            background: #4fc3f7;
+            border-radius: 3px;
+            transition: width 0.1s linear;
+        }
+        @media (max-width: 768px) {
+            #control-panel {
+                top: auto;
+                bottom: 0;
+                right: 0;
+                left: 0;
+                max-width: 100%;
+                max-height: 50vh;
+                border-radius: 12px 12px 0 0;
+            }
+            #control-panel.collapsed {
+                transform: translateY(calc(100% + 10px));
+            }
+            #toggle-panel {
+                top: auto;
+                bottom: 20px;
+                right: 20px;
+            }
+            #control-panel.collapsed + #toggle-panel {
+                display: flex;
+            }
+            #info-panel {
+                display: none;
+            }
+            #performance-stats {
+                font-size: 10px;
+                padding: 8px 10px;
+            }
+            .btn {
+                padding: 8px 10px;
+                font-size: 11px;
+            }
+        }
+        @media (max-width: 480px) {
+            #control-panel {
+                padding: 15px;
+            }
+            #control-panel h2 {
+                font-size: 16px;
+            }
+            .control-section h3 {
+                font-size: 13px;
+            }
         }
     </style>
 </head>
@@ -181,18 +376,51 @@
     <div id="loading">
         <h1>工业机械臂3D可视化</h1>
         <div class="loader"></div>
-        <p style="color: #b0bec5; margin-top: 20px;">正在加载场景...</p>
+        <p id="loading-progress">正在加载场景资源...</p>
     </div>
     
     <div id="canvas-container"></div>
     
     <div id="performance-stats">
-        FPS: <span id="fps">0</span> | 
-        延迟: <span id="latency">0</span>ms
+        <div class="stat-row">
+            <span>FPS: <span id="fps" class="good">0</span></span>
+            <span>延迟: <span id="latency" class="good">0</span>ms</span>
+        </div>
+        <div class="stat-row">
+            <span>三角面: <span id="triangles">0</span></span>
+            <span>绘制: <span id="drawcalls">0</span></span>
+        </div>
+    </div>
+    
+    <div id="highlight-info">
+        <h4 id="highlight-title">部件名称</h4>
+        <div id="highlight-details"></div>
+    </div>
+    
+    <div class="action-status" id="action-status">
+        <div id="action-name">执行动作中...</div>
+        <div class="progress-bar">
+            <div class="progress-fill" id="action-progress"></div>
+        </div>
     </div>
     
     <div id="control-panel">
         <h2>控制面板</h2>
+        
+        <div class="control-section">
+            <h3>预设动作一键触发</h3>
+            <div class="btn-group">
+                <button class="btn action-btn" id="btn-welding" onclick="executeAction('welding')">焊接</button>
+                <button class="btn action-btn" id="btn-spray" onclick="executeAction('spray')">喷涂</button>
+                <button class="btn action-btn" id="btn-assembly" onclick="executeAction('assembly')">装配</button>
+                <button class="btn action-btn" id="btn-transport" onclick="executeAction('transport')">搬运</button>
+            </div>
+            <div class="btn-group" style="margin-top: 8px;">
+                <button class="btn action-btn" id="btn-inspect" onclick="executeAction('inspect')">检测</button>
+                <button class="btn action-btn" id="btn-pickplace" onclick="executeAction('pickplace')">拾放</button>
+                <button class="btn" onclick="stopAction()">停止</button>
+            </div>
+        </div>
         
         <div class="control-section">
             <h3>机械臂关节控制</h3>
@@ -281,25 +509,37 @@
                 <button class="btn" onclick="setPose('home')">初始</button>
                 <button class="btn" onclick="setPose('work')">工作</button>
                 <button class="btn" onclick="setPose('pick')">拾取</button>
+                <button class="btn" onclick="setPose('fold')">折叠</button>
             </div>
         </div>
         
         <div class="control-section">
             <h3>显示选项</h3>
             <div class="btn-group">
-                <button class="btn" id="btn-grid" onclick="toggleGrid()">网格</button>
+                <button class="btn active" id="btn-grid" onclick="toggleGrid()">网格</button>
                 <button class="btn" id="btn-wireframe" onclick="toggleWireframe()">线框</button>
-                <button class="btn" id="btn-shadows" onclick="toggleShadows()">阴影</button>
+                <button class="btn active" id="btn-shadows" onclick="toggleShadows()">阴影</button>
+            </div>
+        </div>
+        
+        <div class="control-section">
+            <h3>高亮显示</h3>
+            <div class="btn-group">
+                <button class="btn" id="btn-highlight-all" onclick="highlightAllParts()">全部部件</button>
+                <button class="btn" onclick="clearHighlight()">清除高亮</button>
             </div>
         </div>
     </div>
+    
+    <button id="toggle-panel" onclick="togglePanel()">☰</button>
     
     <div id="info-panel">
         <p><strong>操作提示：</strong></p>
         <p>鼠标左键拖拽：旋转视角</p>
         <p>鼠标右键拖拽：平移视角</p>
         <p>滚轮：缩放视角</p>
-        <p>点击关节球体：拖拽控制关节</p>
+        <p>点击部件：高亮显示信息</p>
+        <p>拖拽关节球：控制关节</p>
     </div>
 
     <script type="importmap">
@@ -319,6 +559,7 @@
         let scene, camera, renderer, controls, dragControls;
         let robotArm = {};
         let draggableObjects = [];
+        let clickableObjects = [];
         let showGrid = true;
         let showWireframe = false;
         let showShadows = true;
@@ -327,6 +568,12 @@
         let fps = 0;
         let lastInteractionTime = 0;
         let interactionLatency = 0;
+        let currentAction = null;
+        let actionAnimationId = null;
+        let highlightedObject = null;
+        let originalMaterials = new Map();
+        let raycaster, mouse;
+        let isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
         
         const jointLimits = [
             { min: -Math.PI, max: Math.PI },
@@ -337,7 +584,116 @@
             { min: 0, max: 1 }
         ];
         
+        const partInfo = {
+            base: { name: '基座', desc: '机械臂的固定底座，提供稳定的支撑基础', specs: { '材质': '铸铁', '承重': '500kg', '直径': '600mm' } },
+            shoulder: { name: '肩部关节', desc: '连接基座与大臂的主要旋转关节', specs: { '材质': '合金钢', '扭矩': '500Nm', '旋转角度': '±90°' } },
+            upperArm: { name: '大臂', desc: '机械臂的主要承力部件', specs: { '材质': '铝合金', '长度': '800mm', '重量': '15kg' } },
+            elbow: { name: '肘部关节', desc: '连接大臂与小臂的弯曲关节', specs: { '材质': '合金钢', '扭矩': '300Nm', '旋转角度': '±135°' } },
+            forearm: { name: '小臂', desc: '提供延伸距离的次要臂段', specs: { '材质': '铝合金', '长度': '600mm', '重量': '8kg' } },
+            wristRotate: { name: '腕部旋转', desc: '末端执行器的旋转关节', specs: { '材质': '不锈钢', '扭矩': '100Nm', '旋转角度': '±180°' } },
+            wristPitch: { name: '腕部俯仰', desc: '末端执行器的俯仰调节关节', specs: { '材质': '不锈钢', '扭矩': '80Nm', '旋转角度': '±90°' } },
+            gripper: { name: '夹爪', desc: '末端执行器，用于抓取工件', specs: { '材质': '工具钢', '夹持力': '200N', '开合范围': '0-100mm' } },
+            joint0: { name: '基座旋转关节', desc: '控制机械臂整体旋转', specs: { '类型': '伺服电机', '功率': '2kW', '精度': '0.01°' } },
+            joint1: { name: '肩部旋转关节', desc: '控制大臂俯仰运动', specs: { '类型': '伺服电机', '功率': '1.5kW', '精度': '0.01°' } },
+            joint2: { name: '肘部旋转关节', desc: '控制小臂俯仰运动', specs: { '类型': '伺服电机', '功率': '1kW', '精度': '0.01°' } },
+            joint3: { name: '腕部旋转关节', desc: '控制末端旋转', specs: { '类型': '伺服电机', '功率': '0.5kW', '精度': '0.02°' } },
+            joint4: { name: '腕部俯仰关节', desc: '控制末端俯仰', specs: { '类型': '伺服电机', '功率': '0.3kW', '精度': '0.02°' } }
+        };
+        
+        const presetActions = {
+            welding: {
+                name: '焊接作业',
+                sequence: [
+                    { joints: [0, 30, 45, -30, 0, 80], duration: 1000 },
+                    { joints: [45, 30, 45, -30, 15, 20], duration: 800 },
+                    { joints: [90, 25, 50, -25, 10, 20], duration: 800 },
+                    { joints: [135, 30, 45, -30, 5, 20], duration: 800 },
+                    { joints: [180, 35, 40, -35, 0, 20], duration: 800 },
+                    { joints: [135, 30, 45, -30, 5, 20], duration: 800 },
+                    { joints: [90, 25, 50, -25, 10, 20], duration: 800 },
+                    { joints: [45, 30, 45, -30, 15, 20], duration: 800 },
+                    { joints: [0, 30, 45, -30, 0, 80], duration: 1000 }
+                ],
+                loop: true
+            },
+            spray: {
+                name: '喷涂作业',
+                sequence: [
+                    { joints: [-60, 20, 30, 0, -20, 100], duration: 600 },
+                    { joints: [-30, 25, 35, 15, -15, 100], duration: 500 },
+                    { joints: [0, 20, 30, 0, -20, 100], duration: 500 },
+                    { joints: [30, 25, 35, -15, -15, 100], duration: 500 },
+                    { joints: [60, 20, 30, 0, -20, 100], duration: 500 },
+                    { joints: [30, 25, 35, 15, -15, 100], duration: 500 },
+                    { joints: [0, 20, 30, 0, -20, 100], duration: 500 },
+                    { joints: [-30, 25, 35, -15, -15, 100], duration: 500 }
+                ],
+                loop: true
+            },
+            assembly: {
+                name: '装配作业',
+                sequence: [
+                    { joints: [0, 0, 0, 0, 0, 100], duration: 800 },
+                    { joints: [45, 60, -45, 0, 30, 100], duration: 1000 },
+                    { joints: [45, 60, -45, 0, 30, 10], duration: 500 },
+                    { joints: [45, 45, -30, 0, 20, 10], duration: 600 },
+                    { joints: [90, 45, -30, 0, 20, 10], duration: 600 },
+                    { joints: [90, 30, -20, 0, 10, 10], duration: 600 },
+                    { joints: [90, 30, -20, 0, 10, 100], duration: 500 },
+                    { joints: [90, 45, -30, 0, 20, 100], duration: 600 },
+                    { joints: [45, 60, -45, 0, 30, 100], duration: 800 }
+                ],
+                loop: true
+            },
+            transport: {
+                name: '搬运作业',
+                sequence: [
+                    { joints: [-90, 0, 0, 0, 0, 100], duration: 800 },
+                    { joints: [-90, 45, 60, 0, -30, 100], duration: 600 },
+                    { joints: [-90, 45, 60, 0, -30, 5], duration: 400 },
+                    { joints: [-90, 20, 30, 0, -10, 5], duration: 600 },
+                    { joints: [0, 20, 30, 0, -10, 5], duration: 800 },
+                    { joints: [0, 45, 60, 0, -30, 5], duration: 600 },
+                    { joints: [0, 45, 60, 0, -30, 100], duration: 400 },
+                    { joints: [0, 20, 30, 0, -10, 100], duration: 600 }
+                ],
+                loop: true
+            },
+            inspect: {
+                name: '检测作业',
+                sequence: [
+                    { joints: [0, 15, 20, 0, 45, 80], duration: 1000 },
+                    { joints: [30, 20, 25, 45, 40, 80], duration: 1500 },
+                    { joints: [60, 15, 20, 90, 35, 80], duration: 1500 },
+                    { joints: [90, 20, 25, 135, 40, 80], duration: 1500 },
+                    { joints: [120, 15, 20, 180, 45, 80], duration: 1500 },
+                    { joints: [90, 20, 25, 135, 40, 80], duration: 1500 },
+                    { joints: [60, 15, 20, 90, 35, 80], duration: 1500 },
+                    { joints: [30, 20, 25, 45, 40, 80], duration: 1500 }
+                ],
+                loop: true
+            },
+            pickplace: {
+                name: '拾放作业',
+                sequence: [
+                    { joints: [0, 0, 0, 0, 0, 100], duration: 600 },
+                    { joints: [0, 60, 90, 0, -45, 100], duration: 800 },
+                    { joints: [0, 60, 90, 0, -45, 5], duration: 400 },
+                    { joints: [0, 30, 45, 0, -20, 5], duration: 600 },
+                    { joints: [180, 30, 45, 0, -20, 5], duration: 800 },
+                    { joints: [180, 60, 90, 0, -45, 5], duration: 600 },
+                    { joints: [180, 60, 90, 0, -45, 100], duration: 400 },
+                    { joints: [180, 30, 45, 0, -20, 100], duration: 600 },
+                    { joints: [0, 0, 0, 0, 0, 100], duration: 800 }
+                ],
+                loop: true
+            }
+        };
+        
         function init() {
+            const progressEl = document.getElementById('loading-progress');
+            progressEl.textContent = '初始化场景...';
+            
             scene = new THREE.Scene();
             scene.background = new THREE.Color(0x1a1a2e);
             scene.fog = new THREE.Fog(0x1a1a2e, 20, 80);
@@ -345,14 +701,21 @@
             camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 1000);
             camera.position.set(8, 6, 8);
             
-            renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: "high-performance" });
+            renderer = new THREE.WebGLRenderer({ 
+                antialias: !isMobile, 
+                powerPreference: "high-performance",
+                stencil: false
+            });
             renderer.setSize(window.innerWidth, window.innerHeight);
-            renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+            renderer.setPixelRatio(Math.min(window.devicePixelRatio, isMobile ? 1.5 : 2));
             renderer.shadowMap.enabled = true;
             renderer.shadowMap.type = THREE.PCFSoftShadowMap;
             renderer.toneMapping = THREE.ACESFilmicToneMapping;
             renderer.toneMappingExposure = 1.2;
+            renderer.outputColorSpace = THREE.SRGBColorSpace;
             document.getElementById('canvas-container').appendChild(renderer.domElement);
+            
+            progressEl.textContent = '设置控制器...';
             
             controls = new OrbitControls(camera, renderer.domElement);
             controls.enableDamping = true;
@@ -361,16 +724,33 @@
             controls.maxDistance = 30;
             controls.maxPolarAngle = Math.PI / 2 + 0.1;
             controls.target.set(0, 2, 0);
+            controls.touches = {
+                ONE: THREE.TOUCH.ROTATE,
+                TWO: THREE.TOUCH.DOLLY_PAN
+            };
             
+            raycaster = new THREE.Raycaster();
+            mouse = new THREE.Vector2();
+            
+            progressEl.textContent = '创建灯光...';
             setupLights();
+            
+            progressEl.textContent = '创建车间场景...';
             createWorkshop();
+            
+            progressEl.textContent = '创建机械臂...';
             createRobotArm();
+            
+            progressEl.textContent = '设置交互...';
             setupDragControls();
             setupEventListeners();
+            setupClickDetection();
+            
+            progressEl.textContent = '加载完成!';
             
             setTimeout(() => {
                 document.getElementById('loading').style.display = 'none';
-            }, 500);
+            }, 300);
             
             animate();
         }
@@ -450,7 +830,6 @@
             createPillar(10, 0, 10);
             
             createOverheadCrane();
-            
             createBarrels();
             createCrates();
         }
@@ -550,7 +929,7 @@
             const geometry = new THREE.BoxGeometry(0.8, 12, 0.8);
             const material = new THREE.MeshStandardMaterial({
                 color: 0x3a3a4a,
-                roughness: 0.6,
+                roughness: 0.7,
                 metalness: 0.3
             });
             const pillar = new THREE.Mesh(geometry, material);
@@ -563,23 +942,35 @@
         function createOverheadCrane() {
             const group = new THREE.Group();
             
-            const beamGeom = new THREE.BoxGeometry(30, 0.5, 0.5);
-            const beamMat = new THREE.MeshStandardMaterial({ color: 0x4a4a5a, roughness: 0.5, metalness: 0.4 });
+            const beamGeom = new THREE.BoxGeometry(30, 0.4, 0.4);
+            const beamMat = new THREE.MeshStandardMaterial({ color: 0xffa726, roughness: 0.5, metalness: 0.5 });
             const beam = new THREE.Mesh(beamGeom, beamMat);
-            beam.position.y = 10;
+            beam.position.set(0, 10, -8);
             beam.castShadow = true;
             group.add(beam);
             
-            const crossBeamGeom = new THREE.BoxGeometry(0.5, 0.5, 15);
-            const crossBeam = new THREE.Mesh(crossBeamGeom, beamMat);
-            crossBeam.position.set(5, 10, 0);
-            crossBeam.castShadow = true;
-            group.add(crossBeam);
+            const railGeom = new THREE.BoxGeometry(0.3, 0.3, 16);
+            const rail1 = new THREE.Mesh(railGeom, beamMat);
+            rail1.position.set(-15, 10, 0);
+            rail1.castShadow = true;
+            group.add(rail1);
             
-            const hookGeom = new THREE.CylinderGeometry(0.2, 0.3, 0.5, 8);
-            const hookMat = new THREE.MeshStandardMaterial({ color: 0xff6b6b, roughness: 0.4, metalness: 0.6 });
+            const rail2 = new THREE.Mesh(railGeom, beamMat);
+            rail2.position.set(15, 10, 0);
+            rail2.castShadow = true;
+            group.add(rail2);
+            
+            const hoistGeom = new THREE.BoxGeometry(1, 0.5, 1);
+            const hoistMat = new THREE.MeshStandardMaterial({ color: 0x607d8b, roughness: 0.4, metalness: 0.6 });
+            const hoist = new THREE.Mesh(hoistGeom, hoistMat);
+            hoist.position.set(5, 9.7, -8);
+            hoist.castShadow = true;
+            group.add(hoist);
+            
+            const hookGeom = new THREE.CylinderGeometry(0.15, 0.2, 0.3, 8);
+            const hookMat = new THREE.MeshStandardMaterial({ color: 0xffc107, roughness: 0.3, metalness: 0.7 });
             const hook = new THREE.Mesh(hookGeom, hookMat);
-            hook.position.set(5, 8, 0);
+            hook.position.set(5, 8.5, -8);
             hook.castShadow = true;
             group.add(hook);
             
@@ -588,9 +979,9 @@
         
         function createBarrels() {
             const barrelGeom = new THREE.CylinderGeometry(0.4, 0.4, 1, 16);
-            const barrelMat = new THREE.MeshStandardMaterial({ color: 0x4a7c59, roughness: 0.7, metalness: 0.3 });
+            const barrelMat = new THREE.MeshStandardMaterial({ color: 0x2196f3, roughness: 0.6, metalness: 0.4 });
             
-            [[-12, 0.5, 8], [-11, 0.5, 8], [-12, 0.5, 9]].forEach(pos => {
+            [[-12, 0.5, 8], [-11, 0.5, 8], [-12, 0.5, 9.2], [12, 0.5, 8], [11, 0.5, 8]].forEach(pos => {
                 const barrel = new THREE.Mesh(barrelGeom, barrelMat);
                 barrel.position.set(...pos);
                 barrel.castShadow = true;
@@ -601,9 +992,9 @@
         
         function createCrates() {
             const crateGeom = new THREE.BoxGeometry(1, 1, 1);
-            const crateMat = new THREE.MeshStandardMaterial({ color: 0x8b7355, roughness: 0.8, metalness: 0.1 });
+            const crateMat = new THREE.MeshStandardMaterial({ color: 0x8d6e63, roughness: 0.8, metalness: 0.1 });
             
-            [[12, 0.5, 8], [13, 0.5, 8], [12, 1.5, 8]].forEach(pos => {
+            [[-14, 0.5, -5], [-14, 1.5, -5], [-13, 0.5, -5], [14, 0.5, -5], [14, 1.5, -5]].forEach(pos => {
                 const crate = new THREE.Mesh(crateGeom, crateMat);
                 crate.position.set(...pos);
                 crate.castShadow = true;
@@ -616,68 +1007,63 @@
             const armGroup = new THREE.Group();
             armGroup.name = 'robotArm';
             
-            const basePlateGeom = new THREE.CylinderGeometry(1.2, 1.4, 0.2, 32);
-            const basePlateMat = new THREE.MeshStandardMaterial({
-                color: 0x2a2a3a,
-                roughness: 0.4,
-                metalness: 0.6
-            });
-            const basePlate = new THREE.Mesh(basePlateGeom, basePlateMat);
-            basePlate.position.y = 0.1;
-            basePlate.castShadow = true;
-            basePlate.receiveShadow = true;
-            armGroup.add(basePlate);
-            
             robotArm.base = new THREE.Group();
             robotArm.base.name = 'base';
             
-            const baseGeom = new THREE.CylinderGeometry(0.8, 1, 0.6, 32);
+            const baseGeom = new THREE.CylinderGeometry(0.8, 1, 0.4, 32);
             const baseMat = new THREE.MeshStandardMaterial({
-                color: 0x4a4a5a,
-                roughness: 0.3,
-                metalness: 0.7
+                color: 0x2d2d3d,
+                roughness: 0.4,
+                metalness: 0.6
             });
-            const base = new THREE.Mesh(baseGeom, baseMat);
-            base.position.y = 0.5;
-            base.castShadow = true;
-            robotArm.base.add(base);
+            const baseMesh = new THREE.Mesh(baseGeom, baseMat);
+            baseMesh.castShadow = true;
+            baseMesh.receiveShadow = true;
+            baseMesh.userData.partName = 'base';
+            clickableObjects.push(baseMesh);
+            robotArm.base.add(baseMesh);
             
-            const joint0Sphere = createJointSphere(0xff6b6b, 0.3);
-            joint0Sphere.position.y = 0.9;
+            const joint0Sphere = createJointSphere(0xff6b6b, 0.25);
+            joint0Sphere.position.y = 0.35;
             joint0Sphere.name = 'joint0';
             joint0Sphere.userData.jointIndex = 0;
+            joint0Sphere.userData.partName = 'joint0';
             robotArm.base.add(joint0Sphere);
             draggableObjects.push(joint0Sphere);
+            clickableObjects.push(joint0Sphere);
             
             armGroup.add(robotArm.base);
             
             robotArm.shoulder = new THREE.Group();
             robotArm.shoulder.name = 'shoulder';
-            robotArm.shoulder.position.y = 1.1;
+            robotArm.shoulder.position.y = 0.6;
             
-            const shoulderGeom = new THREE.BoxGeometry(0.5, 1.2, 0.5);
+            const shoulderGeom = new THREE.SphereGeometry(0.35, 16, 16);
             const shoulderMat = new THREE.MeshStandardMaterial({
-                color: 0x4fc3f7,
+                color: 0xffd93d,
                 roughness: 0.3,
                 metalness: 0.6
             });
-            const shoulder = new THREE.Mesh(shoulderGeom, shoulderMat);
-            shoulder.position.y = 0.6;
-            shoulder.castShadow = true;
-            robotArm.shoulder.add(shoulder);
+            const shoulderMesh = new THREE.Mesh(shoulderGeom, shoulderMat);
+            shoulderMesh.castShadow = true;
+            shoulderMesh.userData.partName = 'shoulder';
+            clickableObjects.push(shoulderMesh);
+            robotArm.shoulder.add(shoulderMesh);
             
-            const joint1Sphere = createJointSphere(0xffd93d, 0.25);
-            joint1Sphere.position.y = 1.3;
+            const joint1Sphere = createJointSphere(0xffd93d, 0.2);
+            joint1Sphere.position.y = 0.4;
             joint1Sphere.name = 'joint1';
             joint1Sphere.userData.jointIndex = 1;
+            joint1Sphere.userData.partName = 'joint1';
             robotArm.shoulder.add(joint1Sphere);
             draggableObjects.push(joint1Sphere);
+            clickableObjects.push(joint1Sphere);
             
             robotArm.base.add(robotArm.shoulder);
             
-            robotArm.elbow = new THREE.Group();
-            robotArm.elbow.name = 'elbow';
-            robotArm.elbow.position.y = 1.3;
+            robotArm.upperArm = new THREE.Group();
+            robotArm.upperArm.name = 'upperArm';
+            robotArm.upperArm.position.y = 0.5;
             
             const upperArmGeom = new THREE.BoxGeometry(0.4, 1.5, 0.4);
             const upperArmMat = new THREE.MeshStandardMaterial({
@@ -685,19 +1071,41 @@
                 roughness: 0.3,
                 metalness: 0.6
             });
-            const upperArm = new THREE.Mesh(upperArmGeom, upperArmMat);
-            upperArm.position.y = 0.75;
-            upperArm.castShadow = true;
-            robotArm.elbow.add(upperArm);
+            const upperArmMesh = new THREE.Mesh(upperArmGeom, upperArmMat);
+            upperArmMesh.position.y = 0.75;
+            upperArmMesh.castShadow = true;
+            upperArmMesh.userData.partName = 'upperArm';
+            clickableObjects.push(upperArmMesh);
+            robotArm.upperArm.add(upperArmMesh);
             
-            const joint2Sphere = createJointSphere(0x6bcb77, 0.22);
-            joint2Sphere.position.y = 1.6;
+            robotArm.shoulder.add(robotArm.upperArm);
+            
+            robotArm.elbow = new THREE.Group();
+            robotArm.elbow.name = 'elbow';
+            robotArm.elbow.position.y = 1.6;
+            
+            const elbowGeom = new THREE.SphereGeometry(0.3, 16, 16);
+            const elbowMat = new THREE.MeshStandardMaterial({
+                color: 0x6bcb77,
+                roughness: 0.3,
+                metalness: 0.6
+            });
+            const elbowMesh = new THREE.Mesh(elbowGeom, elbowMat);
+            elbowMesh.castShadow = true;
+            elbowMesh.userData.partName = 'elbow';
+            clickableObjects.push(elbowMesh);
+            robotArm.elbow.add(elbowMesh);
+            
+            const joint2Sphere = createJointSphere(0x6bcb77, 0.18);
+            joint2Sphere.position.y = 0.35;
             joint2Sphere.name = 'joint2';
             joint2Sphere.userData.jointIndex = 2;
+            joint2Sphere.userData.partName = 'joint2';
             robotArm.elbow.add(joint2Sphere);
             draggableObjects.push(joint2Sphere);
+            clickableObjects.push(joint2Sphere);
             
-            robotArm.shoulder.add(robotArm.elbow);
+            robotArm.upperArm.add(robotArm.elbow);
             
             robotArm.wristRotate = new THREE.Group();
             robotArm.wristRotate.name = 'wristRotate';
@@ -712,14 +1120,18 @@
             const forearm = new THREE.Mesh(forearmGeom, forearmMat);
             forearm.position.y = 0.6;
             forearm.castShadow = true;
+            forearm.userData.partName = 'forearm';
+            clickableObjects.push(forearm);
             robotArm.wristRotate.add(forearm);
             
             const joint3Sphere = createJointSphere(0x4d96ff, 0.18);
             joint3Sphere.position.y = 1.3;
             joint3Sphere.name = 'joint3';
             joint3Sphere.userData.jointIndex = 3;
+            joint3Sphere.userData.partName = 'joint3';
             robotArm.wristRotate.add(joint3Sphere);
             draggableObjects.push(joint3Sphere);
+            clickableObjects.push(joint3Sphere);
             
             robotArm.elbow.add(robotArm.wristRotate);
             
@@ -736,14 +1148,18 @@
             const wrist = new THREE.Mesh(wristGeom, wristMat);
             wrist.position.y = 0.2;
             wrist.castShadow = true;
+            wrist.userData.partName = 'wristPitch';
+            clickableObjects.push(wrist);
             robotArm.wristPitch.add(wrist);
             
             const joint4Sphere = createJointSphere(0x9b59b6, 0.15);
             joint4Sphere.position.y = 0.45;
             joint4Sphere.name = 'joint4';
             joint4Sphere.userData.jointIndex = 4;
+            joint4Sphere.userData.partName = 'joint4';
             robotArm.wristPitch.add(joint4Sphere);
             draggableObjects.push(joint4Sphere);
+            clickableObjects.push(joint4Sphere);
             
             robotArm.wristRotate.add(robotArm.wristPitch);
             
@@ -759,6 +1175,8 @@
             });
             const gripperBase = new THREE.Mesh(gripperBaseGeom, gripperBaseMat);
             gripperBase.castShadow = true;
+            gripperBase.userData.partName = 'gripper';
+            clickableObjects.push(gripperBase);
             robotArm.gripper.add(gripperBase);
             
             robotArm.gripperLeft = new THREE.Group();
@@ -808,7 +1226,7 @@
             dragControls.addEventListener('dragstart', function(event) {
                 controls.enabled = false;
                 lastInteractionTime = performance.now();
-                event.object.material.emissiveIntensity = 0.5;
+                highlightObject(event.object);
             });
             
             dragControls.addEventListener('drag', function(event) {
@@ -854,19 +1272,119 @@
             
             dragControls.addEventListener('dragend', function(event) {
                 controls.enabled = true;
-                event.object.material.emissiveIntensity = 0.2;
             });
             
             dragControls.addEventListener('hoveron', function(event) {
                 document.body.style.cursor = 'grab';
-                event.object.material.emissiveIntensity = 0.4;
+                highlightObject(event.object);
             });
             
             dragControls.addEventListener('hoveroff', function(event) {
                 document.body.style.cursor = 'auto';
-                event.object.material.emissiveIntensity = 0.2;
+                if (highlightedObject === event.object) {
+                    clearHighlight();
+                }
             });
         }
+        
+        function setupClickDetection() {
+            renderer.domElement.addEventListener('click', onCanvasClick);
+            renderer.domElement.addEventListener('touchend', onCanvasTouch);
+        }
+        
+        function onCanvasClick(event) {
+            const rect = renderer.domElement.getBoundingClientRect();
+            mouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+            mouse.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+            
+            raycaster.setFromCamera(mouse, camera);
+            const intersects = raycaster.intersectObjects(clickableObjects, false);
+            
+            if (intersects.length > 0) {
+                const clickedObject = intersects[0].object;
+                highlightObject(clickedObject);
+                showPartInfo(clickedObject.userData.partName);
+            }
+        }
+        
+        function onCanvasTouch(event) {
+            if (event.changedTouches.length === 1) {
+                const touch = event.changedTouches[0];
+                const rect = renderer.domElement.getBoundingClientRect();
+                mouse.x = ((touch.clientX - rect.left) / rect.width) * 2 - 1;
+                mouse.y = -((touch.clientY - rect.top) / rect.height) * 2 + 1;
+                
+                raycaster.setFromCamera(mouse, camera);
+                const intersects = raycaster.intersectObjects(clickableObjects, false);
+                
+                if (intersects.length > 0) {
+                    const clickedObject = intersects[0].object;
+                    highlightObject(clickedObject);
+                    showPartInfo(clickedObject.userData.partName);
+                }
+            }
+        }
+        
+        function highlightObject(obj) {
+            clearHighlight();
+            
+            highlightedObject = obj;
+            originalMaterials.set(obj, obj.material.clone());
+            
+            const highlightMat = obj.material.clone();
+            highlightMat.emissive = new THREE.Color(0x4fc3f7);
+            highlightMat.emissiveIntensity = 0.5;
+            obj.material = highlightMat;
+            
+            showPartInfo(obj.userData.partName);
+        }
+        
+        function clearHighlight() {
+            if (highlightedObject && originalMaterials.has(highlightedObject)) {
+                highlightedObject.material = originalMaterials.get(highlightedObject);
+                originalMaterials.delete(highlightedObject);
+            }
+            highlightedObject = null;
+            document.getElementById('highlight-info').style.display = 'none';
+        }
+        
+        window.clearHighlight = clearHighlight;
+        
+        function showPartInfo(partName) {
+            if (!partName || !partInfo[partName]) return;
+            
+            const info = partInfo[partName];
+            const infoPanel = document.getElementById('highlight-info');
+            const titleEl = document.getElementById('highlight-title');
+            const detailsEl = document.getElementById('highlight-details');
+            
+            titleEl.textContent = info.name;
+            
+            let html = `<p>${info.desc}</p>`;
+            if (info.specs) {
+                html += '<div style="margin-top: 10px;">';
+                for (const [key, value] of Object.entries(info.specs)) {
+                    html += `<div class="spec"><span class="spec-label">${key}</span><span class="spec-value">${value}</span></div>`;
+                }
+                html += '</div>';
+            }
+            
+            detailsEl.innerHTML = html;
+            infoPanel.style.display = 'block';
+        }
+        
+        window.highlightAllParts = function() {
+            clickableObjects.forEach(obj => {
+                if (!originalMaterials.has(obj)) {
+                    originalMaterials.set(obj, obj.material.clone());
+                    const highlightMat = obj.material.clone();
+                    highlightMat.emissive = new THREE.Color(0x4fc3f7);
+                    highlightMat.emissiveIntensity = 0.3;
+                    obj.material = highlightMat;
+                }
+            });
+            document.getElementById('btn-highlight-all').classList.add('active');
+        };
         
         function updateSlider(jointIndex, radians) {
             const slider = document.getElementById('joint' + jointIndex);
@@ -892,21 +1410,11 @@
                     const startTime = performance.now();
                     
                     switch(i) {
-                        case 0:
-                            robotArm.base.rotation.y = radians;
-                            break;
-                        case 1:
-                            robotArm.shoulder.rotation.z = radians;
-                            break;
-                        case 2:
-                            robotArm.elbow.rotation.z = radians;
-                            break;
-                        case 3:
-                            robotArm.wristRotate.rotation.y = radians;
-                            break;
-                        case 4:
-                            robotArm.wristPitch.rotation.z = radians;
-                            break;
+                        case 0: robotArm.base.rotation.y = radians; break;
+                        case 1: robotArm.shoulder.rotation.z = radians; break;
+                        case 2: robotArm.elbow.rotation.z = radians; break;
+                        case 3: robotArm.wristRotate.rotation.y = radians; break;
+                        case 4: robotArm.wristPitch.rotation.z = radians; break;
                     }
                     
                     interactionLatency = performance.now() - startTime;
@@ -956,6 +1464,11 @@
             renderer.setSize(window.innerWidth, window.innerHeight);
         }
         
+        window.togglePanel = function() {
+            const panel = document.getElementById('control-panel');
+            panel.classList.toggle('collapsed');
+        };
+        
         window.setView = function(view) {
             const duration = 500;
             const startPos = camera.position.clone();
@@ -1000,10 +1513,13 @@
         };
         
         window.setPose = function(pose) {
+            stopAction();
+            
             const poses = {
                 home: [0, 0, 0, 0, 0, 50],
                 work: [45, 30, -45, 0, 20, 30],
-                pick: [-30, 45, 60, 90, -30, 100]
+                pick: [-30, 45, 60, 90, -30, 100],
+                fold: [0, -80, 120, 0, 80, 100]
             };
             
             const targetPose = poses[pose];
@@ -1031,6 +1547,83 @@
             }
             
             animatePose();
+        };
+        
+        window.executeAction = function(actionName) {
+            const action = presetActions[actionName];
+            if (!action) return;
+            
+            stopAction();
+            currentAction = actionName;
+            
+            const btn = document.getElementById('btn-' + actionName);
+            if (btn) btn.classList.add('running');
+            
+            const statusEl = document.getElementById('action-status');
+            const nameEl = document.getElementById('action-name');
+            const progressEl = document.getElementById('action-progress');
+            
+            nameEl.textContent = action.name;
+            statusEl.style.display = 'block';
+            
+            let sequenceIndex = 0;
+            let stepProgress = 0;
+            const sliders = [0, 1, 2, 3, 4, 5].map(i => document.getElementById('joint' + i));
+            
+            function runAction() {
+                if (!currentAction) return;
+                
+                const currentStep = action.sequence[sequenceIndex];
+                const startValues = sliders.map(s => parseFloat(s.value));
+                const stepStart = performance.now();
+                
+                function animateStep() {
+                    if (!currentAction) return;
+                    
+                    const elapsed = performance.now() - stepStart;
+                    stepProgress = Math.min(elapsed / currentStep.duration, 1);
+                    const eased = 1 - Math.pow(1 - stepProgress, 3);
+                    
+                    sliders.forEach((slider, i) => {
+                        const newValue = startValues[i] + (currentStep.joints[i] - startValues[i]) * eased;
+                        slider.value = newValue;
+                        slider.dispatchEvent(new Event('input'));
+                    });
+                    
+                    const totalProgress = ((sequenceIndex + stepProgress) / action.sequence.length) * 100;
+                    progressEl.style.width = totalProgress + '%';
+                    
+                    if (stepProgress < 1) {
+                        actionAnimationId = requestAnimationFrame(animateStep);
+                    } else {
+                        sequenceIndex++;
+                        if (sequenceIndex >= action.sequence.length) {
+                            if (action.loop) {
+                                sequenceIndex = 0;
+                            } else {
+                                stopAction();
+                                return;
+                            }
+                        }
+                        actionAnimationId = requestAnimationFrame(runAction);
+                    }
+                }
+                
+                animateStep();
+            }
+            
+            runAction();
+        };
+        
+        window.stopAction = function() {
+            currentAction = null;
+            if (actionAnimationId) {
+                cancelAnimationFrame(actionAnimationId);
+                actionAnimationId = null;
+            }
+            
+            document.querySelectorAll('.action-btn').forEach(btn => btn.classList.remove('running'));
+            document.getElementById('action-status').style.display = 'none';
         };
         
         window.toggleGrid = function() {
@@ -1075,8 +1668,18 @@
                 fps = frameCount;
                 frameCount = 0;
                 lastTime = currentTime;
-                document.getElementById('fps').textContent = fps;
-                document.getElementById('latency').textContent = interactionLatency.toFixed(1);
+                
+                const fpsEl = document.getElementById('fps');
+                const latencyEl = document.getElementById('latency');
+                
+                fpsEl.textContent = fps;
+                latencyEl.textContent = interactionLatency.toFixed(1);
+                
+                fpsEl.className = fps >= 50 ? 'good' : (fps >= 30 ? 'warning' : 'error');
+                latencyEl.className = interactionLatency <= 30 ? 'good' : (interactionLatency <= 50 ? 'warning' : 'error');
+                
+                document.getElementById('triangles').textContent = renderer.info.render.triangles;
+                document.getElementById('drawcalls').textContent = renderer.info.render.calls;
             }
             
             controls.update();
